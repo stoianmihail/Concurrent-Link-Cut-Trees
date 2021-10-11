@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this data structure, please cite it as below:"
+authors:
+  - family-names: Stoian
+    given-names: Mihail
+    orcid: https://orcid.org/0000-0002-8843-3374
+title: "Concurrent Link-Cut Trees"
+version: 1.0.0
+date-released: 2021-10-11
