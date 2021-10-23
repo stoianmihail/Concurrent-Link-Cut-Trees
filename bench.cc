@@ -238,6 +238,7 @@ double cut_benchmark(std::string filename, unsigned n) {
 }
 
 void benchmark(std::string filename) {
+  // Tokenize.
   auto tokenize = [&]() -> std::vector<std::string> {
     auto pos = filename.find_last_of("/");
     auto tmp = filename.substr(1 + pos, filename.size());
@@ -249,6 +250,7 @@ void benchmark(std::string filename) {
     return std::move(tokens);
   };
 
+  // Derive parameters and start benchmarking.
   auto tokens = tokenize();
   auto workload_type = tokens.front();
   auto w = tokens[1];
