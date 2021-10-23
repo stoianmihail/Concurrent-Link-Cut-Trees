@@ -1,43 +1,48 @@
-#ifndef H_UnionFind
-#define H_UnionFind
-//---------------------------------------------------------------------------
+#pragma
 #include <vector>
-//---------------------------------------------------------------------------
-// (c) 2017 Thomas Neumann
-//---------------------------------------------------------------------------
-/// A union-find data structure that maps dense integers to representatives
-class UnionFind {
-   /// An entry
-   struct Entry {
-      /// The representative+1 if set, otherwise 0
-      unsigned representative = 0;
-      /// The rank of the set
-      unsigned rank = 0;
 
-      /// Does the entry have an representative
-      bool hasRepresentative() const { return representative; }
-      /// Get the representative
-      unsigned getRepresentative() const { return representative-1; }
-      /// Set the representative
-      void setRepresentative(unsigned rep) { representative=rep+1; }
-   };
-   /// All entries
-   std::vector<Entry> entries;
+class UnionFind {
+   /// The roots.
+   std::vector<unsigned> boss;
 
    public:
-   /// Constructor
-   explicit UnionFind(unsigned size);
-   /// Destructor
-   ~UnionFind();
+   /// The constructor.
+   explicit UnionFind(unsigned size) {
+      boss.resize(size);
+      for (unsigned index = 0; index != size; ++index)
+         boss[index] = index;
+   }
+   
+   /// The destructor.
+   ~UnionFind() {}
 
-   /// Union two sets. Returns the new set id
-   unsigned unionSets(unsigned entry1,unsigned entry2);
-   /// Find the representative for a given entry
-   unsigned find(unsigned entry);
+   /// Unify two sets.
+   void unify(unsigned u, unsigned v) {
+      unsigned ru = find(u), rv = find(v);
+
+      // Already in the same set?
+      if (ru == rv)
+         return;
+
+      boss[rv] = ru;
+   }
+   
+   /// Find the root.
+   unsigned find(unsigned u) {
+      auto r = u;
+      while (r != boss[r]) {
+         r = boss[r];
+      }
+      while (u != boss[u]) {
+         auto tmp = boss[u];
+         boss[u] = r;
+         u = tmp; 
+      }
+      return r;
+   }
+
    /// Check for union.
-   bool areUnion(unsigned u, unsigned v) {
+   bool areConnected(unsigned u, unsigned v) {
      return find(u) == find(v);
    }
 };
-//---------------------------------------------------------------------------
-#endif
