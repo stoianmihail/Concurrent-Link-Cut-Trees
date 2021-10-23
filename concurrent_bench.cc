@@ -8,7 +8,7 @@
 #include <future>
 #include <csignal>
 #include "include/ConcurrentLCT.hpp"
-#include "include/UnionFind.hpp"
+#include "include/LockCouplingLCT.hpp"
 
 using namespace std::chrono;
 
@@ -17,20 +17,21 @@ using namespace std::chrono;
 using Workload = std::vector<std::pair<unsigned, unsigned>>;
 using WorkloadTriple = std::vector<std::tuple<unsigned, unsigned, unsigned>>;
 
-double lookup_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_factor, Workload& workload) { 
+template <class TreeType, class NodeType>
+double lookup_benchmark_lct(unsigned n, unsigned num_threads, unsigned task_factor, Workload& workload) { 
   unsigned m = workload.size();
 
   // Perform sequential operations, when the task size is zero.
-  auto sequential = [&](ConcurrentLinkCutTrees& clct, std::vector<ConcurrentLinkCutTrees::CoNode*>& nodes, unsigned lb, unsigned ub, std::string type, bool verify = false) {
+  auto sequential = [&](TreeType& lct, std::vector<NodeType*>& nodes, unsigned lb, unsigned ub, std::string type, bool verify = false) {
     if (type == "link") {
       // Link.
       for (unsigned index = lb; index != ub; ++index)
-        clct.link(nodes[workload[index].first], nodes[workload[index].second]);
+        lct.link(nodes[workload[index].first], nodes[workload[index].second]);
     } else if (type == "lookup") {
       // Lookup.
       for (unsigned index = lb; index != ub; ++index) {
         auto op = workload[index];
-        auto root = clct.findRoot(nodes[op.first]);
+        auto root = lct.findRoot(nodes[op.first]);
         
         // Verify.
         if (verify) {
@@ -42,24 +43,24 @@ double lookup_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_fac
     } else if (type == "cut") {
       // Cut.
       for (unsigned index = lb; index != ub; ++index) {
-        clct.cut(nodes[workload[index].first]);
+        lct.cut(nodes[workload[index].first]);
       }
     }
   };
   
   auto checkForCorrectness = [&]() -> void {
     std::cerr << "**************** CHECK FOR CORRECTNESS ****************" << std::endl;
-    std::vector<ConcurrentLinkCutTrees::CoNode*> nodes(n); 
-    ConcurrentLinkCutTrees clct(n, nodes);
+    std::vector<NodeType*> nodes(n); 
+    TreeType lct(n, nodes);
     for (unsigned index = 0; index != n; ++index) {
-      nodes[index] = new ConcurrentLinkCutTrees::CoNode();
+      nodes[index] = new NodeType();
       nodes[index]->label = index;
     }
     
     auto deployLinks = [&](unsigned lb, unsigned ub) {
       unsigned taskSize = (ub - lb) / (task_factor * num_threads);
       if (!taskSize) {
-        sequential(clct, nodes, lb, ub, "link", true);
+        sequential(lct, nodes, lb, ub, "link", true);
         return;
       }
       unsigned numTasks = (ub - lb) / taskSize + ((ub - lb) % taskSize != 0);
@@ -79,7 +80,7 @@ double lookup_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_fac
           
           // Start linking.
           for (unsigned index = startIndex; index != stopIndex; ++index) {
-            clct.link(nodes[workload[index].first], nodes[workload[index].second]);
+            lct.link(nodes[workload[index].first], nodes[workload[index].second]);
           }
         }
       };
@@ -96,7 +97,7 @@ double lookup_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_fac
     auto deployLookups = [&](unsigned lb, unsigned ub) {
       unsigned taskSize = (ub - lb) / (task_factor * num_threads);
       if (!taskSize) {
-        sequential(clct, nodes, lb, ub, "lookup", true);
+        sequential(lct, nodes, lb, ub, "lookup", true);
         return;
       }
       unsigned numTasks = (ub - lb) / taskSize + ((ub - lb) % taskSize != 0);
@@ -116,7 +117,7 @@ double lookup_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_fac
           
           for (unsigned index = startIndex; index != stopIndex; ++index) {
             auto op = workload[index];
-            auto root = clct.findRoot(nodes[op.first]);
+            auto root = lct.findRoot(nodes[op.first]);
             if (root->label != nodes[op.second]->label)
               std::cerr << "op=(" << op.first << "," << op.second << ") root=" << root->label << " vs " << nodes[op.second]->label << std::endl;
             assert(root->label == nodes[op.second]->label);
@@ -158,17 +159,17 @@ double lookup_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_fac
   }
 
   auto benchmark = [&]() -> double {
-    std::vector<ConcurrentLinkCutTrees::CoNode*> nodes(n); 
-    ConcurrentLinkCutTrees clct(n, nodes);
+    std::vector<NodeType*> nodes(n); 
+    TreeType lct(n, nodes);
     for (unsigned index = 0; index != n; ++index) {
-      nodes[index] = new ConcurrentLinkCutTrees::CoNode();
+      nodes[index] = new NodeType();
       nodes[index]->label = index;
     }
     
     auto deployLinks = [&](unsigned lb, unsigned ub) {
       unsigned taskSize = (ub - lb) / (task_factor * num_threads);
       if (!taskSize) {
-        sequential(clct, nodes, lb, ub, "link");
+        sequential(lct, nodes, lb, ub, "link");
         return;
       }
       unsigned numTasks = (ub - lb) / taskSize + ((ub - lb) % taskSize != 0);
@@ -188,7 +189,7 @@ double lookup_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_fac
           
           // Start linking.
           for (unsigned index = startIndex; index != stopIndex; ++index) {
-            clct.link(nodes[workload[index].first], nodes[workload[index].second]);
+            lct.link(nodes[workload[index].first], nodes[workload[index].second]);
           }
         }
       };
@@ -205,7 +206,7 @@ double lookup_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_fac
     auto deployLookups = [&](unsigned lb, unsigned ub) {
       unsigned taskSize = (ub - lb) / (task_factor * num_threads);
       if (!taskSize) {
-        sequential(clct, nodes, lb, ub, "lookup");
+        sequential(lct, nodes, lb, ub, "lookup");
         return;
       }
       unsigned numTasks = (ub - lb) / taskSize + ((ub - lb) % taskSize != 0);
@@ -224,7 +225,7 @@ double lookup_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_fac
             stopIndex = ub;
           
           for (unsigned index = startIndex; index != stopIndex; ++index) {
-            auto root = clct.findRoot(nodes[workload[index].first]);
+            auto root = lct.findRoot(nodes[workload[index].first]);
           }
         }
       };
@@ -269,15 +270,16 @@ double lookup_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_fac
   return 0;
 }
 
-double cut_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_factor, Workload& workload) {  
-  auto sequential = [&](ConcurrentLinkCutTrees& clct, std::vector<ConcurrentLinkCutTrees::CoNode*>& nodes, unsigned lb, unsigned ub, std::string type, bool verify = false) {
+template <class TreeType, class NodeType>
+double cut_benchmark_lct(unsigned n, unsigned num_threads, unsigned task_factor, Workload& workload) {  
+  auto sequential = [&](TreeType& lct, std::vector<NodeType*>& nodes, unsigned lb, unsigned ub, std::string type, bool verify = false) {
     if (type == "link") {
       for (unsigned index = lb; index != ub; ++index)
-        clct.link(nodes[workload[index].first], nodes[workload[index].second]);
+        lct.link(nodes[workload[index].first], nodes[workload[index].second]);
     } else if (type == "lookup") {
       for (unsigned index = lb; index != ub; ++index) {
         auto op = workload[index];
-        auto root = clct.findRoot(nodes[op.first]);
+        auto root = lct.findRoot(nodes[op.first]);
         if (verify) {
           if (root->label != nodes[op.second]->label)
             std::cerr << "op=(" << op.first << "," << op.second << ") root=" << root->label << " vs " << nodes[op.second]->label << std::endl;
@@ -286,7 +288,7 @@ double cut_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_factor
       }
     } else if (type == "cut") {
       for (unsigned index = lb; index != ub; ++index) {
-        clct.cut(nodes[workload[index].first]);
+        lct.cut(nodes[workload[index].first]);
       }
     }
   };
@@ -294,17 +296,17 @@ double cut_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_factor
   unsigned m = workload.size();
   auto checkForCorrectness = [&]() -> void {
     std::cerr << "**************** CHECK FOR CORRECTNESS ****************" << std::endl;
-    std::vector<ConcurrentLinkCutTrees::CoNode*> nodes(n); 
-    ConcurrentLinkCutTrees clct(n, nodes);
+    std::vector<NodeType*> nodes(n); 
+    TreeType lct(n, nodes);
     for (unsigned index = 0; index != n; ++index) {
-      nodes[index] = new ConcurrentLinkCutTrees::CoNode();
+      nodes[index] = new NodeType();
       nodes[index]->label = index;
     }
     
     auto deployCuts = [&](unsigned lb, unsigned ub) {
       unsigned taskSize = (ub - lb) / (task_factor * num_threads);
       if (!taskSize) {
-        sequential(clct, nodes, lb, ub, "cut", true);
+        sequential(lct, nodes, lb, ub, "cut", true);
         return;
       }
       unsigned numTasks = (ub - lb) / taskSize + ((ub - lb) % taskSize != 0);
@@ -324,7 +326,7 @@ double cut_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_factor
           
           // Start linking.
           for (unsigned index = startIndex; index != stopIndex; ++index) {
-            clct.cut(nodes[workload[index].first]);
+            lct.cut(nodes[workload[index].first]);
           }
         }
       };
@@ -341,7 +343,7 @@ double cut_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_factor
     auto deployLinks = [&](unsigned lb, unsigned ub) {
       unsigned taskSize = (ub - lb) / (task_factor * num_threads);
       if (!taskSize) {
-        sequential(clct, nodes, lb, ub, "link", true);
+        sequential(lct, nodes, lb, ub, "link", true);
         return;
       }
       unsigned numTasks = (ub - lb) / taskSize + ((ub - lb) % taskSize != 0);
@@ -361,7 +363,7 @@ double cut_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_factor
           
           // Start linking.
           for (unsigned index = startIndex; index != stopIndex; ++index) {
-            clct.link(nodes[workload[index].first], nodes[workload[index].second]);
+            lct.link(nodes[workload[index].first], nodes[workload[index].second]);
           }
         }
       };
@@ -378,7 +380,7 @@ double cut_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_factor
     auto deployLookups = [&](unsigned lb, unsigned ub) {
       unsigned taskSize = (ub - lb) / (task_factor * num_threads);
       if (!taskSize) {
-        sequential(clct, nodes, lb, ub, "lookup", true);
+        sequential(lct, nodes, lb, ub, "lookup", true);
         return;
       }
       unsigned numTasks = (ub - lb) / taskSize + ((ub - lb) % taskSize != 0);
@@ -398,7 +400,7 @@ double cut_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_factor
           
           for (unsigned index = startIndex; index != stopIndex; ++index) {
             auto op = workload[index];
-            auto root = clct.findRoot(nodes[op.first]);
+            auto root = lct.findRoot(nodes[op.first]);
             if (root->label != nodes[op.second]->label)
               std::cerr << "op=(" << op.first << "," << op.second << ") root=" << root->label << " vs " << nodes[op.second]->label << std::endl;
             assert(root->label == nodes[op.second]->label);
@@ -442,17 +444,17 @@ double cut_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_factor
   }
 
   auto benchmark = [&]() -> double {
-    std::vector<ConcurrentLinkCutTrees::CoNode*> nodes(n); 
-    ConcurrentLinkCutTrees clct(n, nodes);
+    std::vector<NodeType*> nodes(n); 
+    TreeType lct(n, nodes);
     for (unsigned index = 0; index != n; ++index) {
-      nodes[index] = new ConcurrentLinkCutTrees::CoNode();
+      nodes[index] = new NodeType();
       nodes[index]->label = index;
     }
     
     auto deployCuts = [&](unsigned lb, unsigned ub) {
       unsigned taskSize = (ub - lb) / (task_factor * num_threads);
       if (!taskSize) {
-        sequential(clct, nodes, lb, ub, "cut");
+        sequential(lct, nodes, lb, ub, "cut");
         return;
       }
       unsigned numTasks = (ub - lb) / taskSize + ((ub - lb) % taskSize != 0);
@@ -472,7 +474,7 @@ double cut_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_factor
           
           // Start linking.
           for (unsigned index = startIndex; index != stopIndex; ++index) {
-            clct.cut(nodes[workload[index].first]);
+            lct.cut(nodes[workload[index].first]);
           }
         }
       };
@@ -489,7 +491,7 @@ double cut_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_factor
     auto deployLinks = [&](unsigned lb, unsigned ub) {
       unsigned taskSize = (ub - lb) / (task_factor * num_threads);
       if (!taskSize) {
-        sequential(clct, nodes, lb, ub, "link");
+        sequential(lct, nodes, lb, ub, "link");
         return;
       }
       unsigned numTasks = (ub - lb) / taskSize + ((ub - lb) % taskSize != 0);
@@ -509,7 +511,7 @@ double cut_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_factor
           
           // Start linking.
           for (unsigned index = startIndex; index != stopIndex; ++index) {
-            clct.link(nodes[workload[index].first], nodes[workload[index].second]);
+            lct.link(nodes[workload[index].first], nodes[workload[index].second]);
           }
         }
       }; 
@@ -525,7 +527,7 @@ double cut_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_factor
     auto deployLookups = [&](unsigned lb, unsigned ub) {
       unsigned taskSize = (ub - lb) / (task_factor * num_threads);
       if (!taskSize) {
-        sequential(clct, nodes, lb, ub, "lookup");
+        sequential(lct, nodes, lb, ub, "lookup");
         return;
       }
       unsigned numTasks = (ub - lb) / taskSize + ((ub - lb) % taskSize != 0);
@@ -544,7 +546,7 @@ double cut_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_factor
             stopIndex = ub;
           
           for (unsigned index = startIndex; index != stopIndex; ++index) {
-            auto root = clct.findRoot(nodes[workload[index].first]);
+            auto root = lct.findRoot(nodes[workload[index].first]);
           }
         }
       }; 
@@ -589,7 +591,7 @@ double cut_benchmark_clct(unsigned n, unsigned num_threads, unsigned task_factor
   return 0;
 }
 
-double lookup_benchmark(std::string filename, unsigned n, unsigned num_threads, unsigned task_factor) {
+double lookup_benchmark(std::string filename, unsigned n, unsigned num_threads, unsigned task_factor, unsigned lock_coupling) {
   Workload workload;
   std::ifstream input(filename);
   if (!input.is_open()) {
@@ -607,11 +609,12 @@ double lookup_benchmark(std::string filename, unsigned n, unsigned num_threads, 
   input.read(reinterpret_cast<char*>(workload.data()), elements * sizeof(std::pair<unsigned, unsigned>));
   unsigned m = workload.size();
 
-  std::cerr << "---------------- New benchmark ----------------" << std::endl;
-  return lookup_benchmark_clct(n, num_threads, task_factor, workload);
+  std::cerr << "---------------- New benchmark (lock_coupling=" << lock_coupling << ") ----------------" << std::endl;
+  return (!lock_coupling) ? lookup_benchmark_lct<ConcurrentLinkCutTrees, ConcurrentLinkCutTrees::CoNode>(n, num_threads, task_factor, workload)
+                          : lookup_benchmark_lct<LockCouplingLinkCutTrees, LockCouplingLinkCutTrees::CoNode>(n, num_threads, task_factor, workload);
 }
 
-double cut_benchmark(std::string filename, unsigned n, unsigned num_threads, unsigned task_factor) {
+double cut_benchmark(std::string filename, unsigned n, unsigned num_threads, unsigned task_factor, unsigned lock_coupling) {
   Workload workload;
   std::ifstream input(filename);
   if (!input.is_open()) {
@@ -629,11 +632,12 @@ double cut_benchmark(std::string filename, unsigned n, unsigned num_threads, uns
   input.read(reinterpret_cast<char*>(workload.data()), elements * sizeof(std::pair<unsigned, unsigned>));
   unsigned m = workload.size();
 
-  std::cerr << "---------------- New benchmark ----------------" << std::endl;
-  return cut_benchmark_clct(n, num_threads, task_factor, workload);
+  std::cerr << "---------------- New benchmark (lock_coupling=" << lock_coupling << ") ----------------" << std::endl;
+  return (!lock_coupling) ? cut_benchmark_lct<ConcurrentLinkCutTrees, ConcurrentLinkCutTrees::CoNode>(n, num_threads, task_factor, workload)
+                          : cut_benchmark_lct<LockCouplingLinkCutTrees, LockCouplingLinkCutTrees::CoNode>(n, num_threads, task_factor, workload);
 }
 
-void benchmark(std::string filename, unsigned num_threads, unsigned task_factor) { 
+void benchmark(std::string filename, unsigned num_threads, unsigned task_factor, unsigned lock_coupling = 0) { 
   auto tokenize = [&]() -> std::vector<std::string> {
     auto pos = filename.find_last_of("/");
     auto tmp = filename.substr(1 + pos, filename.size());
@@ -654,19 +658,20 @@ void benchmark(std::string filename, unsigned num_threads, unsigned task_factor)
   std::cerr << "Start benchmarking \"" << type << " (" << std::to_string(n) << ")\"" << std::endl;
   double time = 0;
   if (type == "cut") {
-    time = cut_benchmark(filename, n, num_threads, task_factor);
+    time = cut_benchmark(filename, n, num_threads, task_factor, lock_coupling);
   } else if (type == "lookup") {
-    time = lookup_benchmark(filename, n, num_threads, task_factor);
-  } else if (type == "lca") {
+    time = lookup_benchmark(filename, n, num_threads, task_factor, lock_coupling);
+  } else {
     std::cerr << "Not supported yet!" << std::endl;
     exit(-1);
   }
 }
 
 int main(int argc, char** argv) {
-  if (argc != 4) {
-    std::cerr << "Usage: " << argv[0] << " <workload:file> <num_threads:unsigned> <task_factor:unsigned>" << std::endl;
+  if ((argc != 4) && (argc != 5)) {
+    std::cerr << "Usage: " << argv[0] << " <workload:file> <num_threads:unsigned> <task_factor:unsigned> [<lock-coupling:bool>]" << std::endl;
     exit(-1);
   }
-  benchmark(argv[1], atoi(argv[2]), atoi(argv[3]));
+  auto lock_coupling = (argc == 5) ? atoi(argv[4]) : 0;
+  benchmark(argv[1], atoi(argv[2]), atoi(argv[3]), lock_coupling);
 }

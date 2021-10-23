@@ -387,7 +387,7 @@ void buildConcurrentWorkload(unsigned n, std::string tree_type, std::string work
 int main(int argc, char** argv) {
   // Example: Construct worload of path with n=10000 (#nodes) β=1000 (batch size): ./build_batch_workload 10000 1 random cut 1000
   if (argc != 5) {
-    std::cerr << "Usage: " << argv[0] << " <n:unsigned> <tree_type:string[k-ary,random]> <workload_type:string[lookup,cut]> <batch_size:unsigned[>= 100]>" << std::endl;
+    std::cerr << "Usage: " << argv[0] << " <n:unsigned> <tree_type:string[k-ary,random]> <workload_type:string[lookup,cut]> <β:unsigned[>= 100]>" << std::endl;
     exit(-1);
   }
   buildConcurrentWorkload(atoi(argv[1]), argv[2], argv[3], atoi(argv[4]));
