@@ -7,7 +7,6 @@
 #include <optional>
 #include <future>
 #include <csignal>
-#include "include/CoarseLCT.hpp"
 #include "include/ConcurrentLCT.hpp"
 #include "include/UnionFind.hpp"
 
