@@ -1,3 +1,6 @@
+.vscode/
+workloads/
+
 build
 
 # Prerequisites
