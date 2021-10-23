@@ -374,6 +374,9 @@ void buildConcurrentWorkload(unsigned n, std::string tree_type, std::string work
     workload = buildLookupWorkload(n, edges, batch_size);
   } else if (workload_type == "cut") {
     workload = buildCutWorkload(n, edges, batch_size);
+  } else {
+    std::cerr << "Workload \"" << workload_type << "\" not yet supported!" << std::endl;
+    exit(-1);
   }
   
   // And flush the output.
