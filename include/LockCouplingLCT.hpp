@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <optional>
 #include <mutex>
 
 // `Concurrent Link-Cut Trees` - Mihail Stoian, 2021.
@@ -136,9 +137,9 @@ public:
     return x;
   }
   
-  std::vector<unsigned> pathExpose(CoNode* x) {
+  std::optional<unsigned> pathExpose(CoNode* x) {
     CoNode* last = nullptr;
-    std::vector<unsigned> trace;
+    std::optional<unsigned> trace = std::nullopt;
     for (CoNode* y = x; y; last = y, y = y->parent) {
       unsigned repr = getRepr(y);
       restart: {
@@ -156,7 +157,7 @@ public:
 
       // Does it have a lower path?
       if (y->right) {
-        // Find its representant - O(log2(n))-operation.
+        // Find its representative - O(log2(n))-operation.
         auto tmp = y->right;
         while (tmp->left)
           tmp = tmp->left;
@@ -165,7 +166,7 @@ public:
         auto reprOfPath = tmp->label;
         
         // At this point we cut the splay subtree.
-        // So, at a later point, a thread is able to lock it.
+        // At a later point in time, a thread is then able to lock it.
         // Thus, the order of instructions matters!
         y->right = nullptr;
         unlinkInPiArray(reprOfPath);
@@ -176,24 +177,26 @@ public:
       // Thus, this is a safe operation. It could also be done after `link`.
       y->right = last;
       if (last) {
-        assert(!trace.empty());
-        linkInPiArray(trace.back(), y->label);
+        assert(trace.has_value());
+        linkInPiArray(trace.value(), y->label);
+        nodes_[trace.value()]->latch.unlock();
       }
-      
-      trace.push_back(repr);
+
+      // Store the representative.
+      trace = repr;
     }
     
     // Finally, splay `x`.
     splay(x);
     
     // And return the trace.
-    return std::move(trace);
+    return trace;
   }
   
-  void unlockTrace(std::vector<unsigned>& trace) {
-  // Unlock the trace.
-    for (unsigned index = 0, limit = trace.size(); index != limit; ++index)
-      nodes_[trace[limit - index - 1]]->latch.unlock();
+  void unlockTrace(std::optional<unsigned> trace) {
+    // Unlock the trace.
+    if (trace.has_value())
+      nodes_[trace.value()]->latch.unlock();
   }
   
   void link(CoNode* x, CoNode* y) {
@@ -222,7 +225,8 @@ public:
 
   CoNode* findRoot(CoNode* x) {
     auto trace = pathExpose(x);
-    
+
+
     // Find the root.
     while (x->left) x = x->left;
     

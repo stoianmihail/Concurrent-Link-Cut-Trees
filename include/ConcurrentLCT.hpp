@@ -156,7 +156,7 @@ public:
 
       // Does it have a lower path?
       if (y->right) {
-        // Find its representant - O(log2(n))-operation.
+        // Find its representative - O(log2(n))-operation.
         auto tmp = y->right;
         while (tmp->left)
           tmp = tmp->left;

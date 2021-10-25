@@ -665,6 +665,10 @@ void benchmark(std::string filename, unsigned num_threads, unsigned task_factor,
     std::cerr << "Not supported yet!" << std::endl;
     exit(-1);
   }
+
+  std::ofstream log("../logs/" + type + "-p_1" + "-w_" + w + "-b_" + b + "-n_" + std::to_string(n) + "-t_" + std::to_string(num_threads) + "-f_" + std::to_string(task_factor) + "-l_" + std::to_string(lock_coupling) + ".log");
+  log << time << " ms" << std::endl;
+  log.close();
 }
 
 int main(int argc, char** argv) {
