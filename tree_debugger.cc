@@ -8,32 +8,123 @@
 #include <optional>
 #include <limits>
 #include <cstdlib>
+#include <thread>
+#include <atomic>
 #include <unordered_set>
 #include "include/LCT.hpp"
 #include "include/UnionFind.hpp"
 #include "include/TreeBuilder.hpp"
+#include "include/ConcurrentLCT.hpp"
+#include "include/LockCouplingLCT.hpp"
 
 using namespace std::chrono;
 static constexpr unsigned infty = std::numeric_limits<unsigned>::max();
-using Triple = std::tuple<unsigned, unsigned, unsigned>;
 using Workload = std::vector<Pair>;
 
-template<class Generator>
-std::vector<unsigned> sample(std::vector<unsigned>& list, unsigned capacity, Generator& engine) {
-  // Compute the reservoir sampling
-  std::vector<unsigned> indices(capacity);
-  for (unsigned index = 0; index != capacity; ++index)
-    indices[index] = list[index];
+std::vector<int> computeDepths(std::vector<std::optional<unsigned>>& parent) {
+  std::vector<int> depth(parent.size(), 0);
+  std::function<int(unsigned)> computeDepth = [&](unsigned u) -> unsigned {
+    if (!parent[u].has_value()) {
+      return depth[u] = 0;
+    }
+    return depth[u] = (1 + computeDepth(parent[u].value())); 
+  };
 
-  unsigned expand = capacity + 1;
-  for (unsigned index = capacity, limit = list.size(); index != limit; ++index) {
-    unsigned r = std::uniform_int_distribution<unsigned>{0, expand++}(engine);
-    if (r < capacity)
-      indices[r] = list[index];
-  }
-  return indices;
+  for (unsigned index = 0, limit = parent.size(); index != limit; ++index)
+    computeDepth(index);
+  return depth;
 }
 
+Workload buildLayerWorkload(unsigned n, const std::vector<Pair>& edges) {
+  UnionFind uf(n);
+  std::vector<std::optional<unsigned>> parent(n, std::nullopt);
+  Workload workload, inserts;
+  unsigned m = edges.size();
+  for (unsigned index = 0; index != m; ++index) {
+    unsigned u = edges[index].first, v = edges[index].second;
+    inserts.push_back(std::make_pair(u, v));
+    parent[u] = v;
+    uf.unify(u, v);
+  }
+
+  workload.push_back(std::make_pair(1, inserts.size()));
+  workload.insert(workload.end(), inserts.begin(), inserts.end());  
+  auto depth = computeDepths(parent);
+
+  std::vector<std::optional<unsigned>> root = parent;
+  std::function<unsigned(unsigned)> climb = [&](unsigned x) -> unsigned {
+    if (!root[x].has_value()) return x;
+    auto val = climb(root[x].value());
+    root[x] = val;
+    return val;
+  };
+
+  std::cerr << "Computing pairs.." << std::endl;
+  std::vector<Pair> pairs;
+  for (unsigned diff = 1; diff != n; ++diff) {
+    auto prev_size = pairs.size();
+    for (unsigned u = 0; u != n; ++u) {
+      for (unsigned v = u + 1; v != n; ++v) {
+        if (std::abs(depth[u] - depth[v]) != diff) continue;
+        if (climb(u) == climb(v)) {
+          pairs.push_back({u, root[u].has_value() ? climb(root[u].value()) : u});
+          pairs.push_back({v, root[v].has_value() ? climb(root[v].value()) : v});
+        }
+      }
+    }
+    std::cerr << "> diff=" << diff << " pairs.size()=" << pairs.size() << std::endl;
+    if (pairs.size() == prev_size) break;
+  }
+
+  std::random_shuffle(pairs.begin(), pairs.end());
+
+  workload.push_back({0, pairs.size()});
+  workload.insert(workload.end(), pairs.begin(), pairs.end());
+  return workload;
+}
+
+void checkWorkload(unsigned n, Workload& workload) {
+  auto checkForCorrectness = [&]() -> void {
+    LinkCutTree lct;
+    std::vector<LinkCutTree::Node*> nodes(n); 
+    for (unsigned index = 0; index != n; ++index) {
+      nodes[index] = new LinkCutTree::Node();
+      nodes[index]->value = index;
+    }
+    
+    UnionFind uf(n);
+    unsigned currIndex = 0;
+    auto read = [&]() -> bool {
+      if (currIndex == workload.size())
+        return false;
+      auto [type, count] = workload[currIndex++];
+      if (type == 1) {
+        while (count--) {
+          auto op = workload[currIndex++];
+          lct.link(nodes[op.first], nodes[op.second]);
+          uf.unify(op.first, op.second);
+          assert(uf.areConnected(op.first, op.second) == lct.areConnected(nodes[op.first], nodes[op.second]));
+        }
+      } else {
+        while (count--) {
+          auto op = workload[currIndex++];
+          auto root = lct.findRoot(nodes[op.first]);
+          if (root != nodes[op.second])
+            std::cerr << "op=(" << op.first << "," << op.second << ") root=" << root->value << " vs " << nodes[op.second]->value << std::endl;
+          assert(lct.findRoot(nodes[op.first]) == nodes[op.second]);
+        }
+      }
+      return true;
+    };
+    
+    while (read()) {}
+  };
+
+  std::cerr << "Check for correctness.." << std::endl;
+  checkForCorrectness();
+}
+
+#if 0
 Workload buildLookupWorkload(unsigned n, std::vector<Pair> edges, unsigned batch_size) {
   std::vector<std::optional<unsigned>> parent(n);
   auto debug = [&](std::optional<unsigned> x) -> std::string {
@@ -309,8 +400,9 @@ Workload buildCutWorkload(unsigned n, std::vector<Pair> edges, unsigned batch_si
   checkForCorrectness();
   return std::move(workload);
 }
+#endif
 
-void buildConcurrentWorkload(unsigned n, std::string tree_type, std::string workload_type, unsigned batch_size) {
+Workload buildCustomWorkload(unsigned n, std::string tree_type) {
   std::vector<Pair> edges;
   if (tree_type == "random") {
     edges = buildRandomTree(n);
@@ -320,32 +412,108 @@ void buildConcurrentWorkload(unsigned n, std::string tree_type, std::string work
   assert(!edges.empty());
   
   // Shuffle the edges.
-  std::random_shuffle(edges.begin(), edges.end());
+  // std::random_shuffle(edges.begin(), edges.end());
 
-  // Take only half of the edges.
-  edges.resize(static_cast<unsigned>(0.5 * edges.size()));
-  
-  // Build the workload.
-  Workload workload;
-  if (workload_type == "lookup") {
-    workload = buildLookupWorkload(n, edges, batch_size);
-  } else if (workload_type == "cut") {
-    workload = buildCutWorkload(n, edges, batch_size);
-  } else {
-    std::cerr << "Workload \"" << workload_type << "\" not yet supported!" << std::endl;
-    exit(-1);
+  std::cerr << "Start building workload.." << std::endl;
+  auto workload = buildLayerWorkload(n, edges);
+  std::cerr << "Workload.size(): " << workload.size() << std::endl;
+  checkWorkload(n, workload);
+
+  // And flush the output.
+  std::ofstream output("../workloads/layer-" + tree_type + "-" + std::to_string(n) + ".bin");
+  output.write(reinterpret_cast<char*>(workload.data()), workload.size() * sizeof(Pair));
+  return workload;
+}
+
+template <class TreeType, class NodeType>
+void runWorkload(unsigned n, unsigned num_threads, Workload& workload) {
+  std::vector<NodeType*> nodes(n); 
+  TreeType lct(n, nodes);
+  for (unsigned index = 0; index != n; ++index) {
+    nodes[index] = new NodeType();
+    nodes[index]->label = index;
   }
   
-  // And flush the output.
-  std::ofstream output("../workloads/" + workload_type + "-" + tree_type + "-" + std::to_string(batch_size) + "-" + std::to_string(n) + ".bin");
-  output.write(reinterpret_cast<char*>(workload.data()), workload.size() * sizeof(std::pair<unsigned, unsigned>));
+  auto deployLinks = [&](unsigned lb, unsigned ub) {
+    unsigned taskSize = 1;
+    unsigned numTasks = (ub - lb) / taskSize + ((ub - lb) % taskSize != 0);
+    std::atomic<unsigned> taskIndex = 0;
+    auto consume = [&]() -> void {
+      while (taskIndex.load() < numTasks) {
+        unsigned i = taskIndex++;
+        if (i >= numTasks)
+          return;
+        
+        // Compute the range.
+        unsigned startIndex = lb + (taskSize * i);
+        unsigned stopIndex = lb + (taskSize * (i + 1));
+        if (i == numTasks - 1)
+          stopIndex = ub;
+        
+        // Start linking.
+        for (unsigned index = startIndex; index != stopIndex; ++index) {
+          lct.link(nodes[workload[index].first], nodes[workload[index].second]);
+        }
+      }
+    };
+    
+    // Single-threaded.
+    consume();
+  };
+
+  auto deployLookups = [&](unsigned lb, unsigned ub) {
+    unsigned taskSize = 1;
+    unsigned numTasks = (ub - lb) / taskSize + ((ub - lb) % taskSize != 0);
+    std::atomic<unsigned> taskIndex = 0;
+    auto consume = [&]() -> void {
+      while (taskIndex.load() < numTasks) {
+        unsigned i = taskIndex++;
+        if (i >= numTasks)
+          return;
+        
+        // Compute the range.
+        unsigned startIndex = lb + (taskSize * i);
+        unsigned stopIndex = lb + (taskSize * (i + 1));
+        if (i == numTasks - 1)
+          stopIndex = ub;
+        
+        for (unsigned index = startIndex; index != stopIndex; ++index) {
+          auto root = lct.findRoot(nodes[workload[index].first]);
+        }
+      }
+    };
+      
+    std::vector<std::thread> threads;
+    for (unsigned index = 0, limit = num_threads; index != limit; ++index) {
+      threads.emplace_back(consume);
+    }
+    for (auto& thread : threads) {
+      thread.join();
+    }
+  };
+  
+  unsigned currIndex = 0;
+  do {
+    auto elem = workload[currIndex];
+    ++currIndex;
+    
+    if (elem.first == 1) {
+      deployLinks(currIndex, currIndex + elem.second);
+      std::cerr << "Deployed " << elem.second << " links!" << std::endl;
+    } else {
+      deployLookups(currIndex, currIndex + elem.second);
+      std::cerr << "Deployed " << elem.second << " lookups!" << std::endl;
+    }
+    currIndex += elem.second;
+  } while (currIndex != workload.size());
 }
 
 int main(int argc, char** argv) {
-  // Example: Construct workload of path with n=10000 (#nodes) β=1000 (batch size): ./build_batch_workload 10000 1 random cut 1000
-  if (argc != 5) {
-    std::cerr << "Usage: " << argv[0] << " <n:unsigned> <tree_type:string[k-ary,random]> <workload_type:string[lookup,cut]> <β:unsigned[>= 100]>" << std::endl;
+  if (argc != 4) {
+    std::cerr << "Usage: " << argv[0] << " <n:unsigned> <tree_type:string[k-ary,random]> <num_threads:unsigned>" << std::endl;
     exit(-1);
   }
-  buildConcurrentWorkload(atoi(argv[1]), argv[2], argv[3], atoi(argv[4]));
+  auto workload = buildCustomWorkload(atoi(argv[1]), argv[2]);
+  runWorkload<LockCouplingLinkCutTrees, LockCouplingLinkCutTrees::CoNode>(atoi(argv[1]), atoi(argv[3]), workload);
+  return 0;
 }
