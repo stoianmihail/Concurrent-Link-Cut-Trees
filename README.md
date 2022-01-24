@@ -1,7 +1,7 @@
 Concurrent Link-Cut Trees
 ====
 
-Link-Cut Trees are considered unparallelizable. This is the first implementation of Concurrent Link-Cut Trees, which achieves 10x speed-up for concurrent workloads.
+Link-Cut Trees are considered unparallelizable. This is the first implementation of concurrent Link-Cut Trees, which achieves 10x speed-up for concurrent workloads.
 
 ## Build
 
